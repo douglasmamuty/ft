@@ -157,6 +157,32 @@ def _nearest_to(target: float, arr: List[Dict[str, Any]], predicate) -> Optional
             best, best_dist = ov, d
     return best
 
+def _is_team_value(v: Dict[str, Any], team: str) -> bool:
+    value = str(v.get("value", ""))
+    if team.lower() == "home":
+        return (
+            _val_eq("Home")(v)
+            or _val_eq("1")(v)
+            or re.search(r"(?i)home", value)
+        )
+    if team.lower() == "away":
+        return (
+            _val_eq("Away")(v)
+            or _val_eq("2")(v)
+            or re.search(r"(?i)away", value)
+        )
+    return False
+
+def _handicap_numeric(v: Dict[str, Any]) -> Optional[float]:
+    raw = str(v.get("handicap") or v.get("value") or "")
+    m = re.search(r"-?\d+(?:\.\d+)?", raw)
+    if not m:
+        return None
+    try:
+        return float(m.group(0))
+    except Exception:
+        return None
+
 def _pick_bookmaker(books: List[Dict[str, Any]], bet_name_rx: re.Pattern
                    ) -> Optional[Tuple[Dict[str, Any], Dict[str, Any]]]:
     """Escolhe (book, bet) preferindo bookmakers em PREFERRED_BOOKMAKERS e com mais valores."""
@@ -218,15 +244,36 @@ def extract_markets(books: List[Dict[str, Any]]) -> Dict[str, Any]:
         if yes or no:
             out["btts"] = {"yes": yes, "no": no, "bookmaker": book.get("name")}
 
-    # Handicap (Home -1, Away +1)
+    # Handicap (Home -1, Away +1 e 0.0)
     hit = _pick_bookmaker(books, RX_HANDICAP)
     if hit:
         book, bet = hit
         vals = bet.get("values") or []
-        home_m1 = next((v.get("odd") for v in vals if (re.search(r"home", str(v.get("value","")), re.I) and re.search(r"-?1(?:\.0)?$", str(v.get("handicap") or v.get("value","")))) or re.match(r"(?i)^home\s*-1(?:\.0)?$", str(v.get("value","")))), None)
-        away_p1 = next((v.get("odd") for v in vals if (re.search(r"away", str(v.get("value","")), re.I) and re.search(r"^\+?1(?:\.0)?$", str(v.get("handicap") or v.get("value","")))) or re.match(r"(?i)^away\s*\+1(?:\.0)?$", str(v.get("value","")))), None)
+        eps = 1e-6
+        home_m1 = None
+        away_p1 = None
+        home_0 = None
+        away_0 = None
+        for v in vals:
+            line = _handicap_numeric(v)
+            if line is None:
+                continue
+            if _is_team_value(v, "home"):
+                if home_m1 is None and abs(line + 1.0) < eps:
+                    home_m1 = v.get("odd")
+                if home_0 is None and abs(line) < eps:
+                    home_0 = v.get("odd")
+            if _is_team_value(v, "away"):
+                if away_p1 is None and abs(line - 1.0) < eps:
+                    away_p1 = v.get("odd")
+                if away_0 is None and abs(line) < eps:
+                    away_0 = v.get("odd")
+
+        bookmaker = book.get("name")
         if home_m1 or away_p1:
-            out["handicap"] = {"homeMinus1": home_m1, "awayPlus1": away_p1, "bookmaker": book.get("name")}
+            out["handicap"] = {"homeMinus1": home_m1, "awayPlus1": away_p1, "bookmaker": bookmaker}
+        if home_0 or away_0:
+            out["handicapZero"] = {"home": home_0, "away": away_0, "bookmaker": bookmaker}
 
     # First Half Winner (1X2 HT)
     hit = _pick_bookmaker(books, RX_FIRST_HALF_WIN)
