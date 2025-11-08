@@ -27,7 +27,7 @@ import gzip
 import time
 import shutil
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     # Python 3.9+
@@ -124,7 +124,7 @@ def get_odds_for_league_date(league_id: int, date_ymd: str) -> List[Dict[str, An
 
 # --- Parsing helpers ------------------------------------------------------------------
 
-def _val_eq(v: string) -> callable:
+def _val_eq(v: str):
     lv = v.lower()
     return lambda ov: str(ov.get("value", "")).lower() == lv
 
@@ -137,7 +137,7 @@ def _line_from(v: Optional[Dict[str, Any]]) -> str:
     m = re.search(r"-?\d+(?:\.\d+)?", str(v.get("value", "")))
     return m.group(0) if m else ""
 
-def _nearest_to(target: float, arr: List[Dict[str, Any]], predicate) -> Optional[Dict[str, Any]]:
+def _nearest_to(target: float, arr: List[Dict[str, Any]], predicate: Callable[[Dict[str, Any]], bool]) -> Optional[Dict[str, Any]]:
     """Escolhe o value (Over/Under) cuja linha numérica é mais próxima do target."""
     best = None
     best_dist = None
@@ -223,8 +223,8 @@ def extract_markets(books: List[Dict[str, Any]]) -> Dict[str, Any]:
         target = 2.5
         over_exact = next((v for v in vals if re.match(r"(?i)^over", str(v.get("value",""))) and "2.5" in str(v.get("handicap") or v.get("value",""))), None)
         under_exact = next((v for v in vals if re.match(r"(?i)^under", str(v.get("value",""))) and "2.5" in str(v.get("handicap") or v.get("value",""))), None)
-        over_pick = over_exact or _nearest_to(target, [v for v in vals if re.match(r"(?i)^over", str(v.get("value","")))], target)
-        under_pick = under_exact or _nearest_to(target, [v for v in vals if re.match(r"(?i)^under", str(v.get("value","")))], target)
+        over_pick = over_exact or _nearest_to(target, vals, lambda ov: bool(re.match(r"(?i)^over", str(ov.get("value","")))))
+        under_pick = under_exact or _nearest_to(target, vals, lambda ov: bool(re.match(r"(?i)^under", str(ov.get("value","")))))
         if over_pick or under_pick:
             line = _line_from(over_pick or under_pick) or "2.5"
             out["overUnder"] = {
