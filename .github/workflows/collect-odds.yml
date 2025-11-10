@@ -17,6 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }} # usa o token padrão para permitir git push
+          fetch-depth: 0           # necessário para rebase/pull
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -37,10 +38,26 @@ jobs:
         run: |
           python scripts/odds_compact.py
 
-      - name: Commit & push new data
+      - name: Commit & push new data (with rebase)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Branch atual a partir de GITHUB_REF (ex.: refs/heads/main)
+          BRANCH="${GITHUB_REF#refs/heads/}"
+
+          # Garante que estamos no branch correto
+          git checkout "$BRANCH"
+
+          # Rebase em cima do remoto para evitar non-fast-forward
+          git fetch origin "$BRANCH"
+          git pull --rebase origin "$BRANCH" || true
+
           git add -A
           git commit -m "chore(data): odds snapshot $(date -u +'%Y-%m-%dT%H:%M:%SZ')" || echo "No changes to commit"
-          git push
+
+          # Push para o mesmo branch
+          git push origin HEAD:"$BRANCH"
